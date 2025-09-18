@@ -1,0 +1,28 @@
+{
+  "rules": {
+    "busLocations": {
+      "$busId": {
+        ".read": true,
+        ".write": "auth != null",
+        ".validate": "newData.hasChildren(['latitude', 'longitude', 'timestamp', 'busId'])"
+      }
+    },
+    "driverStatus": {
+      "$driverId": {
+        ".read": "auth != null",
+        ".write": "auth != null && auth.uid == $driverId",
+        ".validate": "newData.hasChildren(['isOnline', 'lastSeen'])"
+      }
+    },
+    "routeStatus": {
+      "$routeId": {
+        ".read": true,
+        ".write": "auth != null"
+      }
+    },
+    "$other": {
+      ".read": false,
+      ".write": false
+    }
+  }
+}

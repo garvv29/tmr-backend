@@ -1,0 +1,29 @@
+{
+  "name": "track-my-ride-backend",
+  "version": "1.0.0",
+  "description": "Backend API for Track My Ride bus tracking app",
+  "main": "src/server.js",
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "nodemon src/server.js",
+    "setup-firebase": "node scripts/setupFirebase.js",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": ["bus", "tracking", "realtime", "firebase"],
+  "author": "Track My Ride Team",
+  "license": "MIT",
+  "dependencies": {
+    "express": "^4.18.2",
+    "cors": "^2.8.5",
+    "helmet": "^7.1.0",
+    "morgan": "^1.10.0",
+    "dotenv": "^16.3.1",
+    "firebase-admin": "^11.11.1",
+    "moment": "^2.29.4",
+    "validator": "^13.11.0",
+    "uuid": "^9.0.1"
+  },
+  "devDependencies": {
+    "nodemon": "^3.0.2"
+  }
+}

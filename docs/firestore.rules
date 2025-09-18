@@ -1,0 +1,112 @@
+// Firestore Security Rules for Track My Ride
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // Helper functions
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+    
+    function hasRole(role) {
+      return isAuthenticated() && 
+             get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == role;
+    }
+    
+    function isMasterAdmin() {
+      return hasRole('master_admin');
+    }
+    
+    function isAdmin() {
+      return hasRole('admin') || hasRole('master_admin');
+    }
+    
+    function isDriver() {
+      return hasRole('driver');
+    }
+    
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    // Users collection
+    match /users/{userId} {
+      allow read: if isAuthenticated();
+      allow write: if isOwner(userId) || isAdmin();
+      allow create: if isAuthenticated();
+    }
+
+    // Cities collection - public read, admin write
+    match /cities/{cityId} {
+      allow read: if true; // public read
+      allow write: if isAdmin();
+    }
+
+    // Bus Stops collection - public read, admin write  
+    match /busStops/{stopId} {
+      allow read: if true; // public read
+      allow write: if isAdmin();
+    }
+
+    // Bus Operators collection - public read, admin write
+    match /busOperators/{operatorId} {
+      allow read: if true; // public read for transparency
+      allow write: if isAdmin();
+    }
+
+    // Buses collection - public read (limited), admin full access
+    match /buses/{busId} {
+      allow read: if true; // public can see bus info
+      allow write: if isAdmin();
+      allow update: if isDriver() && 
+                       get(/databases/$(database)/documents/buses/$(busId)).data.driverId == request.auth.uid;
+    }
+
+    // Drivers collection - restricted access
+    match /drivers/{driverId} {
+      allow read: if isAdmin() || 
+                     (isDriver() && resource.data.id == request.auth.uid);
+      allow write: if isAdmin();
+    }
+
+    // Routes collection - public read, admin write
+    match /routes/{routeId} {
+      allow read: if true; // public read
+      allow write: if isAdmin();
+    }
+
+    // Route Stops junction table - public read, admin write
+    match /routeStops/{routeStopId} {
+      allow read: if true; // public read
+      allow write: if isAdmin();
+    }
+
+    // Bus Schedules - public read, admin write
+    match /busSchedules/{scheduleId} {
+      allow read: if true; // public read
+      allow write: if isAdmin();
+      allow update: if isDriver(); // drivers can update actual times
+    }
+
+    // Complaints - users can create/read their own, admins see all
+    match /complaints/{complaintId} {
+      allow read: if isAdmin() || isOwner(resource.data.userId);
+      allow create: if isAuthenticated();
+      allow update: if isAdmin() || 
+                       (isOwner(resource.data.userId) && resource.data.status == 'open');
+    }
+
+    // Notifications - users see their own, admins see all
+    match /notifications/{notificationId} {
+      allow read: if isAdmin() || 
+                     isOwner(resource.data.userId) ||
+                     resource.data.userId == null; // broadcast notifications
+      allow write: if isAdmin();
+    }
+
+    // API Logs - admin only
+    match /apiLogs/{logId} {
+      allow read, write: if isMasterAdmin();
+    }
+  }
+}
