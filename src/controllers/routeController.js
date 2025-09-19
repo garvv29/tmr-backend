@@ -1,5 +1,6 @@
 const Route = require('../models/Route');
 const BusStop = require('../models/BusStop');
+const admin = require('firebase-admin');
 
 class RouteController {
   // Create new route (admin only)
@@ -229,6 +230,75 @@ class RouteController {
       });
     } catch (error) {
       console.error('Error getting routes by operator:', error);
+      res.status(500).json({ error: error.message });
+    }
+  }
+
+  // Get detailed stops for a specific route
+  static async getRouteStops(req, res) {
+    try {
+      const { id } = req.params;
+      
+      // Get route stops with bus stop details
+      const routeStopsSnapshot = await admin.firestore()
+        .collection('routeStops')
+        .where('routeId', '==', id)
+        .get();
+
+      if (routeStopsSnapshot.empty) {
+        return res.status(404).json({ 
+          error: 'No stops found for this route',
+          routeId: id
+        });
+      }
+
+      const stops = [];
+      
+      // Get detailed information for each stop
+      for (const doc of routeStopsSnapshot.docs) {
+        const routeStopData = doc.data();
+        
+        // Get bus stop details
+        const busStopDoc = await admin.firestore()
+          .collection('busStops')
+          .doc(routeStopData.stopId)
+          .get();
+
+        if (busStopDoc.exists) {
+          const busStopData = busStopDoc.data();
+          
+          stops.push({
+            routeStopId: doc.id,
+            stopOrder: routeStopData.stopOrder,
+            busStopsHere: routeStopData.busStopsHere || true,
+            arrivalTime: routeStopData.arrivalTime,
+            departureTime: routeStopData.departureTime,
+            stopDetails: {
+              id: busStopData.id,
+              stopName: busStopData.stopName,
+              stopCode: busStopData.stopCode,
+              coordinates: busStopData.coordinates,
+              address: busStopData.address,
+              amenities: busStopData.amenities || [],
+              isMinorStop: busStopData.isMinorStop || false
+            }
+          });
+        }
+      }
+
+      // Sort stops by stopOrder in memory to avoid composite index requirement
+      stops.sort((a, b) => a.stopOrder - b.stopOrder);
+
+      res.json({
+        success: true,
+        routeId: id,
+        stops,
+        totalStops: stops.length,
+        busStops: stops.filter(stop => stop.busStopsHere).length,
+        minorStops: stops.filter(stop => !stop.busStopsHere).length
+      });
+    } catch (error) {
+      console.error('Error getting route stops:', error);
       res.status(500).json({ error: error.message });
     }
   }

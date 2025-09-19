@@ -113,10 +113,11 @@ class Route {
     try {
       const snapshot = await db.collection('routes')
         .where('isActive', '==', true)
-        .orderBy('routeNumber')
         .get();
       
-      return snapshot.docs.map(doc => new Route({ id: doc.id, ...doc.data() }));
+      // Sort in memory instead of using orderBy to avoid composite index requirement
+      const routes = snapshot.docs.map(doc => new Route({ id: doc.id, ...doc.data() }));
+      return routes.sort((a, b) => a.routeNumber.localeCompare(b.routeNumber));
     } catch (error) {
       throw new Error(`Error getting active routes: ${error.message}`);
     }
@@ -209,6 +210,7 @@ class Route {
   // Convert to JSON
   toJSON() {
     return {
+      id: this.id,
       routeName: this.routeName,
       routeNumber: this.routeNumber,
       operatorId: this.operatorId,
