@@ -5,6 +5,8 @@ const { verifyToken, hasPermission } = require('../middleware/auth');
 
 // Public routes (no authentication required)
 router.get('/search', RouteController.searchRoutes);
+router.get('/search-between-stops', RouteController.searchRoutesBetweenStops);
+router.get('/:id/buses', RouteController.getRouteBuses);
 router.get('/:id/stops', RouteController.getRouteStops);
 router.get('/:id', RouteController.getRouteById);
 router.get('/', RouteController.getAllRoutes);

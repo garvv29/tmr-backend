@@ -63,12 +63,13 @@ class BusStopController {
       } else if (state) {
         busStops = await BusStop.getByState(state);
       } else {
-        busStops = await BusStop.getActiveStops();
+        // Use simple query to avoid index requirement
+        busStops = await BusStop.getAllStops();
       }
 
       res.json({
         success: true,
-        busStops: busStops.map(stop => stop.toJSON()),
+        data: busStops.map(stop => stop.toJSON()),
         count: busStops.length
       });
     } catch (error) {

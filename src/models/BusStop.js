@@ -175,19 +175,26 @@ class BusStop {
     return R * c; // Distance in km
   }
 
-  // Get all active bus stops
+  // Get all active bus stops (simplified query to avoid index requirement)
   static async getActiveStops() {
     try {
       const snapshot = await db.collection('busStops')
         .where('isActive', '==', true)
-        .orderBy('state')
-        .orderBy('city')
-        .orderBy('stopName')
         .get();
       
       return snapshot.docs.map(doc => new BusStop({ id: doc.id, ...doc.data() }));
     } catch (error) {
       throw new Error(`Error getting active bus stops: ${error.message}`);
+    }
+  }
+
+  // Get all bus stops (without any filters to avoid index issues)
+  static async getAllStops() {
+    try {
+      const snapshot = await db.collection('busStops').get();
+      return snapshot.docs.map(doc => new BusStop({ id: doc.id, ...doc.data() }));
+    } catch (error) {
+      throw new Error(`Error getting all bus stops: ${error.message}`);
     }
   }
 
@@ -253,19 +260,23 @@ class BusStop {
     }
   }
 
-  // Convert to JSON
+  // Convert to JSON (SimpleBusStop interface)
   toJSON() {
     return {
+      id: this.id,
       stopName: this.stopName,
-      stopCode: this.stopCode,
-      coordinates: this.coordinates,
-      address: this.address,
       city: this.city,
       state: this.state,
-      amenities: this.amenities,
-      isActive: this.isActive,
+      latitude: this.coordinates?.latitude || 0,
+      longitude: this.coordinates?.longitude || 0,
+      coordinates: this.coordinates || { latitude: 0, longitude: 0 },
+      address: this.address,
       createdAt: this.createdAt,
-      updatedAt: this.updatedAt
+      updatedAt: this.updatedAt,
+      // Additional fields for compatibility
+      stopCode: this.stopCode,
+      amenities: this.amenities,
+      isActive: this.isActive
     };
   }
 }

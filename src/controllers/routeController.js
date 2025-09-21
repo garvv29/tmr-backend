@@ -302,6 +302,133 @@ class RouteController {
       res.status(500).json({ error: error.message });
     }
   }
+
+  // Search routes between two bus stops
+  static async searchRoutesBetweenStops(req, res) {
+    try {
+      const { from, to } = req.query;
+
+      if (!from || !to) {
+        return res.status(400).json({
+          error: 'Both from and to parameters are required'
+        });
+      }
+
+      // Find routes that contain both stops
+      const routes = await Route.findRoutesBetweenStops(from, to);
+
+      if (routes.length === 0) {
+        return res.json({
+          success: true,
+          message: 'No routes found between the specified stops',
+          routes: [],
+          totalRoutes: 0
+        });
+      }
+
+      // Get detailed route information with assigned buses
+      const routesWithBuses = await Promise.all(
+        routes.map(async (route) => {
+          const routeDetails = await route.getRouteWithStops();
+          const assignedBuses = await route.getAssignedBuses();
+          
+          return {
+            ...routeDetails,
+            assignedBuses,
+            totalBuses: assignedBuses.length,
+            activeBuses: assignedBuses.filter(bus => bus.isActive && bus.currentStatus !== 'maintenance').length
+          };
+        })
+      );
+
+      res.json({
+        success: true,
+        message: `Found ${routes.length} route(s) between ${from} and ${to}`,
+        routes: routesWithBuses,
+        totalRoutes: routes.length,
+        searchCriteria: { from, to }
+      });
+    } catch (error) {
+      console.error('Error searching routes between stops:', error);
+      res.status(500).json({ error: error.message });
+    }
+  }
+
+  // Get buses running on a specific route
+  static async getRouteBuses(req, res) {
+    try {
+      const { id } = req.params;
+
+      if (!id) {
+        return res.status(400).json({ error: 'Route ID is required' });
+      }
+
+      const route = await Route.findById(id);
+      if (!route) {
+        return res.status(404).json({ error: 'Route not found' });
+      }
+
+      const assignedBuses = await route.getAssignedBuses();
+
+      // Get additional bus details with driver information
+      const Bus = require('../models/Bus');
+      const Driver = require('../models/Driver');
+      
+      const busesWithDetails = await Promise.all(
+        assignedBuses.map(async (bus) => {
+          let driverDetails = null;
+          if (bus.driverId) {
+            const driver = await Driver.findById(bus.driverId);
+            if (driver) {
+              driverDetails = {
+                id: driver.id,
+                driverName: driver.driverName,
+                phoneNumber: driver.phoneNumber,
+                licenseNumber: driver.licenseNumber,
+                experience: driver.experience
+              };
+            }
+          }
+
+          return {
+            ...bus,
+            driverDetails,
+            routeInfo: {
+              routeId: route.id,
+              routeName: route.routeName,
+              routeNumber: route.routeNumber,
+              totalDistance: route.totalDistance,
+              estimatedDuration: route.estimatedDuration
+            }
+          };
+        })
+      );
+
+      res.json({
+        success: true,
+        route: {
+          id: route.id,
+          routeName: route.routeName,
+          routeNumber: route.routeNumber,
+          startLocation: route.startLocation,
+          endLocation: route.endLocation,
+          totalDistance: route.totalDistance,
+          estimatedDuration: route.estimatedDuration,
+          frequency: route.frequency,
+          fare: route.fare,
+          operatingHours: route.operatingHours,
+          category: route.category
+        },
+        buses: busesWithDetails,
+        totalBuses: busesWithDetails.length,
+        activeBuses: busesWithDetails.filter(bus => bus.isActive && bus.currentStatus !== 'maintenance').length,
+        runningBuses: busesWithDetails.filter(bus => bus.currentStatus === 'running').length
+      });
+    } catch (error) {
+      console.error('Error getting route buses:', error);
+      res.status(500).json({ error: error.message });
+    }
+  }
 }
 
 module.exports = RouteController;

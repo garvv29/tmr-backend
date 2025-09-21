@@ -1,0 +1,10 @@
+{
+  "busId": "RJ-004",
+  "routeId": "route_railway_magneto",
+  "latitude": 21.2497,
+  "longitude": 81.6947,
+  "timestamp": "2025-09-19T17:25:16.510Z",
+  "accuracy": 10,
+  "speed": 25,
+  "heading": 90
+}

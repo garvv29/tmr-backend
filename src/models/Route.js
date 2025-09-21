@@ -15,6 +15,12 @@ class Route {
     this.estimatedDuration = data.estimatedDuration || 0; // in minutes
     this.busStops = data.busStops || []; // Array of stop IDs in order
     this.totalStops = data.totalStops || 0;
+    this.assignedBusIds = data.assignedBusIds || []; // Array of bus IDs assigned to this route
+    this.operatingHours = data.operatingHours || { startTime: '06:00', endTime: '22:00' };
+    this.operatingDays = data.operatingDays || ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
+    this.frequency = data.frequency || 30; // in minutes
+    this.fare = data.fare || { adultFare: 10, childFare: 5, seniorFare: 8 };
+    this.category = data.category || 'city'; // 'city', 'intercity', 'express', 'local'
     this.isActive = data.isActive !== undefined ? data.isActive : true;
     this.createdAt = data.createdAt || new Date().toISOString();
     this.updatedAt = new Date().toISOString();
@@ -98,7 +104,7 @@ class Route {
       const routes = snapshot.docs
         .map(doc => new Route({ id: doc.id, ...doc.data() }))
         .filter(route => 
-          route.startLocation.toLowerCase().includes(cityName.toLowerCase()) ||
+          route.startLocation.toLowerCase().includes(cityName.toLowerCase()) || 
           route.endLocation.toLowerCase().includes(cityName.toLowerCase())
         );
       
@@ -108,7 +114,81 @@ class Route {
     }
   }
 
-  // Get all active routes
+  // Find routes that contain both from and to stops
+  static async findRoutesBetweenStops(fromStopName, toStopName) {
+    try {
+      // First get all bus stops to get their IDs
+      const BusStop = require('./BusStop');
+      const allStopsSnapshot = await db.collection('bus_stops').get();
+      const allStops = allStopsSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      
+      // Find stop IDs by name (case insensitive)
+      const fromStops = allStops.filter(stop => 
+        stop.stopName && stop.stopName.toLowerCase().includes(fromStopName.toLowerCase())
+      );
+      const toStops = allStops.filter(stop => 
+        stop.stopName && stop.stopName.toLowerCase().includes(toStopName.toLowerCase())
+      );
+      
+      if (fromStops.length === 0 || toStops.length === 0) {
+        return [];
+      }
+      
+      const fromStopIds = fromStops.map(stop => stop.id);
+      const toStopIds = toStops.map(stop => stop.id);
+      
+      // Get all active routes
+      const routesSnapshot = await db.collection('routes')
+        .where('isActive', '==', true)
+        .get();
+      
+      const matchingRoutes = [];
+      
+      for (const doc of routesSnapshot.docs) {
+        const routeData = { id: doc.id, ...doc.data() };
+        const route = new Route(routeData);
+        
+        // Check if route contains both from and to stops
+        const hasFromStop = route.busStops.some(stopId => fromStopIds.includes(stopId));
+        const hasToStop = route.busStops.some(stopId => toStopIds.includes(stopId));
+        
+        if (hasFromStop && hasToStop) {
+          // Get the order of stops to ensure from comes before to
+          const fromStopIndex = route.busStops.findIndex(stopId => fromStopIds.includes(stopId));
+          const toStopIndex = route.busStops.findIndex(stopId => toStopIds.includes(stopId));
+          
+          if (fromStopIndex < toStopIndex) {
+            matchingRoutes.push(route);
+          }
+        }
+      }
+      
+      return matchingRoutes;
+    } catch (error) {
+      throw new Error(`Error finding routes between stops: ${error.message}`);
+    }
+  }
+
+  // Get assigned buses for this route
+  async getAssignedBuses() {
+    try {
+      if (!this.assignedBusIds || this.assignedBusIds.length === 0) {
+        return [];
+      }
+      
+      const Bus = require('./Bus');
+      const buses = await Promise.all(
+        this.assignedBusIds.map(async (busId) => {
+          const bus = await Bus.findById(busId);
+          return bus ? bus.toJSON() : null;
+        })
+      );
+      
+      return buses.filter(bus => bus !== null);
+    } catch (error) {
+      throw new Error(`Error getting assigned buses: ${error.message}`);
+    }
+  }  // Get all active routes
   static async getActiveRoutes() {
     try {
       const snapshot = await db.collection('routes')
@@ -222,6 +302,12 @@ class Route {
       estimatedDuration: this.estimatedDuration,
       busStops: this.busStops,
       totalStops: this.totalStops,
+      assignedBusIds: this.assignedBusIds,
+      operatingHours: this.operatingHours,
+      operatingDays: this.operatingDays,
+      frequency: this.frequency,
+      fare: this.fare,
+      category: this.category,
       isActive: this.isActive,
       createdAt: this.createdAt,
       updatedAt: this.updatedAt
