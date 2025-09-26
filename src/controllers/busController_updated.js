@@ -459,88 +459,15 @@ class BusController {
     }
   }
 
-  // Search buses by route (from/to flow)
+  // Search buses
   static async searchBuses(req, res) {
     try {
-      const { from, to, query, route, status } = req.query;
+      const { query, route, status } = req.query;
 
-      // If from and to are provided, follow the route -> assignment -> bus flow
-      if (from && to) {
-        console.log(`🔍 Searching routes from "${from}" to "${to}"`);
-        
-        // Step 1: Find routes between from and to locations
-        const routes = await Route.findRoutesBetweenStops(from, to);
-        console.log(`📍 Found ${routes.length} routes`);
-        
-        if (routes.length === 0) {
-          return res.json({
-            success: true,
-            data: [],
-            message: 'No routes found between specified locations',
-            count: 0
-          });
-        }
-
-        // Step 2: Find assignments for these routes
-        const { db } = require('../../config/firebase');
-        const routeIds = routes.map(route => route.id);
-        console.log(`🔍 Searching assignments for route IDs: ${routeIds}`);
-        
-        const assignmentsSnapshot = await db.collection('assignments')
-          .where('routeId', 'in', routeIds)
-          .where('status', '==', 'active')
-          .get();
-
-        const assignments = assignmentsSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-        console.log(`📋 Found ${assignments.length} active assignments`);
-
-        if (assignments.length === 0) {
-          return res.json({
-            success: true,
-            data: [],
-            message: 'No active bus assignments found for these routes',
-            count: 0
-          });
-        }
-
-        // Step 3: Get buses from assignments
-        const busIds = [...new Set(assignments.map(assignment => assignment.busId))]; // Remove duplicates
-        console.log(`🚌 Getting buses with IDs: ${busIds}`);
-        
-        const buses = [];
-        for (const busId of busIds) {
-          try {
-            const bus = await Bus.findByBusId(busId) || await Bus.findById(busId);
-            if (bus && bus.isActive) {
-              // Add assignment info to bus data
-              const busAssignments = assignments.filter(a => a.busId === busId);
-              const busData = {
-                ...bus.toPublicJSON(),
-                assignments: busAssignments,
-                currentRoute: routes.find(r => busAssignments.some(a => a.routeId === r.id))
-              };
-              buses.push(busData);
-            }
-          } catch (error) {
-            console.warn(`⚠️ Could not fetch bus ${busId}: ${error.message}`);
-          }
-        }
-
-        console.log(`✅ Returning ${buses.length} buses`);
-        return res.json({
-          success: true,
-          data: buses,
-          routes: routes.map(r => r.toPublicJSON()),
-          assignments: assignments,
-          count: buses.length
-        });
-      }
-
-      // Fallback to original search logic for other queries
       if (!query) {
         return res.status(400).json({
           success: false,
-          error: 'Search query or from/to locations are required'
+          error: 'Search query is required'
         });
       }
 
@@ -565,80 +492,6 @@ class BusController {
       });
     } catch (error) {
       console.error('Error searching buses:', error);
-      res.status(500).json({ 
-        success: false,
-        error: error.message 
-      });
-    }
-  }
-
-  // Search bus by license plate number
-  static async searchBusByLicensePlate(req, res) {
-    try {
-      const { licensePlate } = req.query;
-
-      if (!licensePlate) {
-        return res.status(400).json({
-          success: false,
-          error: 'License plate number is required'
-        });
-      }
-
-      console.log(`🔍 Searching bus with license plate: ${licensePlate}`);
-
-      // Search for bus by license plate (case insensitive)
-      const bus = await Bus.findByLicensePlate(licensePlate);
-
-      if (!bus) {
-        return res.json({
-          success: false,
-          message: 'Bus not found with this license plate number',
-          data: null
-        });
-      }
-
-      // Get current route and assignment info if available
-      let currentAssignment = null;
-      let currentRoute = null;
-
-      try {
-        const { db } = require('../../config/firebase');
-        
-        // Find active assignment for this bus
-        const assignmentSnapshot = await db.collection('assignments')
-          .where('busId', '==', bus.busId)
-          .where('status', '==', 'active')
-          .limit(1)
-          .get();
-
-        if (!assignmentSnapshot.empty) {
-          const assignmentDoc = assignmentSnapshot.docs[0];
-          currentAssignment = { id: assignmentDoc.id, ...assignmentDoc.data() };
-          
-          // Get route details
-          if (currentAssignment.routeId) {
-            currentRoute = await Route.findById(currentAssignment.routeId);
-          }
-        }
-      } catch (error) {
-        console.warn(`⚠️ Could not fetch assignment/route info: ${error.message}`);
-      }
-
-      const busData = {
-        ...bus.toPublicJSON(),
-        currentAssignment,
-        currentRoute: currentRoute ? currentRoute.toPublicJSON() : null
-      };
-
-      console.log(`✅ Found bus: ${bus.busName} (${bus.licensePlate})`);
-
-      res.json({
-        success: true,
-        data: busData,
-        message: 'Bus found successfully'
-      });
-    } catch (error) {
-      console.error('Error searching bus by license plate:', error);
       res.status(500).json({ 
         success: false,
         error: error.message 

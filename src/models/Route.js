@@ -4,26 +4,46 @@ const { v4: uuidv4 } = require('uuid');
 class Route {
   constructor(data) {
     this.id = data.id || uuidv4();
-    this.routeName = data.routeName;
-    this.routeNumber = data.routeNumber;
-    this.operatorId = data.operatorId;
-    this.startLocation = data.startLocation;
-    this.endLocation = data.endLocation;
-    this.startCoordinates = data.startCoordinates || null;
-    this.endCoordinates = data.endCoordinates || null;
-    this.totalDistance = data.totalDistance || 0;
+    this.routeId = data.routeId || data.routeNumber || `ROUTE${Date.now()}`;
+    this.name = data.name || data.routeName || '';
+    this.description = data.description || `Route from ${data.fromLocation || data.startLocation} to ${data.toLocation || data.endLocation}`;
+    this.type = data.type || data.routeType || 'linear'; // linear | circular | express
+    this.stops = data.stops || []; // Array of stop objects with details
+    
+    // Support both old and new field names
+    this.fromLocation = data.fromLocation || data.startLocation || '';
+    this.toLocation = data.toLocation || data.endLocation || '';
+    this.startLocation = data.startLocation || data.fromLocation || '';
+    this.endLocation = data.endLocation || data.toLocation || '';
+    
+    // Handle location coordinates
+    this.startCoordinates = data.startCoordinates || data.fromCoordinates || null;
+    this.endCoordinates = data.endCoordinates || data.toCoordinates || null;
+    
+    this.distance = data.distance || data.totalDistance || 0;
+    this.totalDistance = data.totalDistance || data.distance || 0;
     this.estimatedDuration = data.estimatedDuration || 0; // in minutes
-    this.busStops = data.busStops || []; // Array of stop IDs in order
-    this.totalStops = data.totalStops || 0;
-    this.assignedBusIds = data.assignedBusIds || []; // Array of bus IDs assigned to this route
     this.operatingHours = data.operatingHours || { startTime: '06:00', endTime: '22:00' };
     this.operatingDays = data.operatingDays || ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
     this.frequency = data.frequency || 30; // in minutes
     this.fare = data.fare || { adultFare: 10, childFare: 5, seniorFare: 8 };
-    this.category = data.category || 'city'; // 'city', 'intercity', 'express', 'local'
+    this.assignedBusIds = data.assignedBusIds || data.assignedBuses || [];
     this.isActive = data.isActive !== undefined ? data.isActive : true;
-    this.createdAt = data.createdAt || new Date().toISOString();
-    this.updatedAt = new Date().toISOString();
+    this.status = data.status || 'active'; // active | inactive
+    this.category = data.category || data.city || 'city'; // city | intercity | express | local
+    this.city = data.city || data.category || 'Raipur';
+    this.routeType = data.routeType || data.type || 'linear';
+    this.dailyRides = data.dailyRides || 0;
+    this.totalPassengers = data.totalPassengers || 0;
+    
+    // Keep old fields for backward compatibility
+    this.routeName = data.routeName || this.name;
+    this.routeNumber = data.routeNumber || this.routeId;
+    this.operatorId = data.operatorId;
+    this.busStops = data.busStops || []; // Array of stop IDs in order (old format)
+    this.totalStops = data.totalStops || this.stops.length;
+    this.createdAt = data.createdAt || new Date();
+    this.updatedAt = new Date();
   }
 
   // Save route to Firestore
@@ -47,9 +67,30 @@ class Route {
     }
   }
 
-  // Find route by route number
+  // Find route by routeId (new field)
+  static async findByRouteId(routeId) {
+    try {
+      const snapshot = await db.collection('routes')
+        .where('routeId', '==', routeId)
+        .limit(1)
+        .get();
+      
+      if (snapshot.empty) return null;
+      
+      const doc = snapshot.docs[0];
+      return new Route({ id: doc.id, ...doc.data() });
+    } catch (error) {
+      throw new Error(`Error finding route by routeId: ${error.message}`);
+    }
+  }
+
+  // Find route by route number (updated to check both fields)
   static async findByRouteNumber(routeNumber) {
     try {
+      // Try routeId first, then routeNumber field
+      let route = await this.findByRouteId(routeNumber);
+      if (route) return route;
+
       const snapshot = await db.collection('routes')
         .where('routeNumber', '==', routeNumber)
         .limit(1)
@@ -115,31 +156,14 @@ class Route {
   }
 
   // Find routes that contain both from and to stops
+  // Find routes that match from and to locations (updated for your database)
   static async findRoutesBetweenStops(fromStopName, toStopName) {
     try {
-      // First get all bus stops to get their IDs
-      const BusStop = require('./BusStop');
-      const allStopsSnapshot = await db.collection('bus_stops').get();
-      const allStops = allStopsSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      console.log(`🔍 Searching routes from "${fromStopName}" to "${toStopName}"`);
       
-      // Find stop IDs by name (case insensitive)
-      const fromStops = allStops.filter(stop => 
-        stop.stopName && stop.stopName.toLowerCase().includes(fromStopName.toLowerCase())
-      );
-      const toStops = allStops.filter(stop => 
-        stop.stopName && stop.stopName.toLowerCase().includes(toStopName.toLowerCase())
-      );
-      
-      if (fromStops.length === 0 || toStops.length === 0) {
-        return [];
-      }
-      
-      const fromStopIds = fromStops.map(stop => stop.id);
-      const toStopIds = toStops.map(stop => stop.id);
-      
-      // Get all active routes
+      // Get all active routes from your database
       const routesSnapshot = await db.collection('routes')
-        .where('isActive', '==', true)
+        .where('status', '==', 'active')
         .get();
       
       const matchingRoutes = [];
@@ -148,23 +172,27 @@ class Route {
         const routeData = { id: doc.id, ...doc.data() };
         const route = new Route(routeData);
         
-        // Check if route contains both from and to stops
-        const hasFromStop = route.busStops.some(stopId => fromStopIds.includes(stopId));
-        const hasToStop = route.busStops.some(stopId => toStopIds.includes(stopId));
+        // Check if route matches fromLocation and toLocation (case insensitive)
+        const fromMatches = route.fromLocation?.toLowerCase().includes(fromStopName.toLowerCase()) ||
+                           route.startLocation?.toLowerCase().includes(fromStopName.toLowerCase());
         
-        if (hasFromStop && hasToStop) {
-          // Get the order of stops to ensure from comes before to
-          const fromStopIndex = route.busStops.findIndex(stopId => fromStopIds.includes(stopId));
-          const toStopIndex = route.busStops.findIndex(stopId => toStopIds.includes(stopId));
-          
-          if (fromStopIndex < toStopIndex) {
-            matchingRoutes.push(route);
-          }
+        const toMatches = route.toLocation?.toLowerCase().includes(toStopName.toLowerCase()) ||
+                         route.endLocation?.toLowerCase().includes(toStopName.toLowerCase());
+        
+        // Also check route name for location matches
+        const nameContainsFrom = route.name?.toLowerCase().includes(fromStopName.toLowerCase());
+        const nameContainsTo = route.name?.toLowerCase().includes(toStopName.toLowerCase());
+        
+        if ((fromMatches || nameContainsFrom) && (toMatches || nameContainsTo)) {
+          console.log(`✅ Found matching route: ${route.name} (${route.fromLocation} → ${route.toLocation})`);
+          matchingRoutes.push(route);
         }
       }
       
+      console.log(`📍 Total ${matchingRoutes.length} routes found`);
       return matchingRoutes;
     } catch (error) {
+      console.error('❌ Error finding routes:', error);
       throw new Error(`Error finding routes between stops: ${error.message}`);
     }
   }
@@ -287,30 +315,66 @@ class Route {
     }
   }
 
-  // Convert to JSON
+  // Convert to JSON with new schema
   toJSON() {
     return {
       id: this.id,
-      routeName: this.routeName,
-      routeNumber: this.routeNumber,
-      operatorId: this.operatorId,
+      routeId: this.routeId,
+      name: this.name,
+      description: this.description,
+      type: this.type,
+      routeType: this.routeType,
+      stops: this.stops,
+      fromLocation: this.fromLocation,
+      toLocation: this.toLocation,
       startLocation: this.startLocation,
       endLocation: this.endLocation,
-      startCoordinates: this.startCoordinates,
-      endCoordinates: this.endCoordinates,
+      distance: this.distance,
       totalDistance: this.totalDistance,
       estimatedDuration: this.estimatedDuration,
-      busStops: this.busStops,
-      totalStops: this.totalStops,
-      assignedBusIds: this.assignedBusIds,
       operatingHours: this.operatingHours,
       operatingDays: this.operatingDays,
       frequency: this.frequency,
       fare: this.fare,
-      category: this.category,
+      assignedBusIds: this.assignedBusIds,
+      assignedBuses: this.assignedBuses,
       isActive: this.isActive,
+      status: this.status,
+      category: this.category,
+      city: this.city,
+      dailyRides: this.dailyRides,
+      totalPassengers: this.totalPassengers,
+      // Keep old fields for backward compatibility
+      routeName: this.routeName,
+      routeNumber: this.routeNumber,
+      operatorId: this.operatorId,
+      startCoordinates: this.startCoordinates,
+      endCoordinates: this.endCoordinates,
+      busStops: this.busStops,
+      totalStops: this.totalStops,
       createdAt: this.createdAt,
       updatedAt: this.updatedAt
+    };
+  }
+
+  // Get public data (for API responses)
+  toPublicJSON() {
+    return {
+      id: this.id,
+      routeId: this.routeId,
+      name: this.name,
+      description: this.description,
+      type: this.type,
+      stops: this.stops,
+      startLocation: this.startLocation,
+      endLocation: this.endLocation,
+      totalDistance: this.totalDistance,
+      estimatedDuration: this.estimatedDuration,
+      operatingHours: this.operatingHours,
+      frequency: this.frequency,
+      fare: this.fare,
+      isActive: this.isActive,
+      category: this.category
     };
   }
 }
